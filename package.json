@@ -1,13 +1,14 @@
 {
   "name": "xprd-key-server",
   "version": "1.0.0",
-  "description": "X Predictions license key validation server with Stripe payments",
+  "description": "X Predictions license key validation server with Stripe and Crypto payments",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "stripe": "^14.0.0"
+    "stripe": "^14.0.0",
+    "crypto": "^1.0.1"
   },
   "engines": {
     "node": ">=18"

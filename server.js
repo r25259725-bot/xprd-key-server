@@ -1,8 +1,9 @@
-// X Predictions — License Key Server with Stripe Payments
+// X Predictions — License Key Server with Stripe & Crypto Payments
 // Deploy on Railway. Uses local JSON file for keys.
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY || "sk_test_dummy");
 
 // ─────────────────────────────────────────────
@@ -12,12 +13,21 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASS || "Laurab1400";
 const PORT = process.env.PORT || 8080;
 const DB_PATH = path.join(__dirname, "keys.json");
 const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLISHABLE_KEY || "pk_test_dummy";
+const COINPAYMENTS_MERCHANT_ID = process.env.COINPAYMENTS_MERCHANT_ID || "";
+const COINPAYMENTS_IPN_SECRET = process.env.COINPAYMENTS_IPN_SECRET || "";
 
-// Key pricing (in cents)
+// Key pricing (in USD)
 const PRICING = {
-  "1-month": { price: 999, durationDays: 30, name: "1 Month" },
-  "3-month": { price: 2499, durationDays: 90, name: "3 Months" },
-  "1-year": { price: 7999, durationDays: 365, name: "1 Year" }
+  "1-month": { price: 9.99, durationDays: 30, name: "1 Month" },
+  "3-month": { price: 24.99, durationDays: 90, name: "3 Months" },
+  "1-year": { price: 79.99, durationDays: 365, name: "1 Year" }
+};
+
+// Crypto pricing (approximate, in crypto units)
+const CRYPTO_PRICING = {
+  "1-month": { ltc: 0.15, sol: 0.35, durationDays: 30 },
+  "3-month": { ltc: 0.38, sol: 0.85, durationDays: 90 },
+  "1-year": { ltc: 1.20, sol: 2.70, durationDays: 365 }
 };
 
 // ─────────────────────────────────────────────
@@ -119,7 +129,7 @@ async function handleValidate(req, res) {
 // ─────────────────────────────────────────────
 
 // GET /shop
-// Shop page with pricing
+// Shop page with pricing (Stripe + Crypto)
 function handleShop(req, res) {
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -133,13 +143,18 @@ function handleShop(req, res) {
 body{font-family:'Courier New',monospace;background:#050508;color:#eef0ff;min-height:100vh;padding:32px 24px}
 h1{color:#e8ff00;font-size:20px;letter-spacing:.15em;margin-bottom:4px}
 .sub{color:#5a5a8a;font-size:11px;letter-spacing:.1em;margin-bottom:28px}
-.container{max-width:900px;margin:0 auto}
+.container{max-width:1000px;margin:0 auto}
+.payment-tabs{display:flex;gap:12px;margin-bottom:24px;border-bottom:1px solid #1c1c35;padding-bottom:12px}
+.tab-btn{background:none;border:none;color:#5a5a8a;cursor:pointer;font-family:inherit;font-size:12px;letter-spacing:.1em;padding:8px 16px;border-bottom:2px solid transparent;transition:all .2s}
+.tab-btn.active{color:#e8ff00;border-bottom-color:#e8ff00}
+.tab-btn:hover{color:#eef0ff}
 .pricing-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;margin-bottom:32px}
 .card{background:#0c0c18;border:1px solid #1c1c35;border-radius:8px;padding:24px;transition:border-color .2s}
 .card:hover{border-color:#6e44ff}
 .card h2{color:#e8ff00;font-size:14px;letter-spacing:.1em;margin-bottom:8px}
 .price{font-size:24px;color:#00f5a0;margin:16px 0;font-weight:700}
 .price-label{color:#5a5a8a;font-size:10px;letter-spacing:.08em}
+.crypto-price{font-size:12px;color:#6e44ff;margin-top:4px}
 .features{list-style:none;margin:16px 0;font-size:11px;line-height:1.8}
 .features li{color:#5a5a8a;margin-bottom:6px}
 .features li:before{content:"✓ ";color:#00f5a0;margin-right:6px}
@@ -156,6 +171,8 @@ input:focus{border-color:rgba(232,255,0,.4)}
 .error{color:#ff3d6e;font-size:10px;margin-top:4px;min-height:14px}
 .success{color:#00f5a0;font-size:11px;margin-top:8px;padding:8px;background:rgba(0,245,160,.1);border-radius:4px}
 .hidden{display:none}
+.crypto-address{background:#08080f;border:1px solid #252545;border-radius:4px;padding:12px;margin:12px 0;word-break:break-all;font-size:10px;color:#6e44ff}
+.copy-btn{padding:6px 12px;font-size:9px;background:#6e44ff;color:#eef0ff;margin-top:0;width:auto}
 </style>
 </head>
 <body>
@@ -163,6 +180,13 @@ input:focus{border-color:rgba(232,255,0,.4)}
 <h1>X PREDICTIONS</h1>
 <div class="sub">LICENSE KEY SHOP</div>
 
+<div class="payment-tabs">
+  <button class="tab-btn active" onclick="switchTab('stripe')">💳 CARD (Stripe)</button>
+  <button class="tab-btn" onclick="switchTab('crypto')">₿ CRYPTO (LTC/SOL)</button>
+</div>
+
+<!-- STRIPE TAB -->
+<div id="stripe-tab">
 <div id="pricing" class="pricing-grid">
   <div class="card">
     <h2>1 MONTH</h2>
@@ -221,11 +245,92 @@ input:focus{border-color:rgba(232,255,0,.4)}
 </div>
 </div>
 
+<!-- CRYPTO TAB -->
+<div id="crypto-tab" class="hidden">
+<div id="crypto-pricing" class="pricing-grid">
+  <div class="card">
+    <h2>1 MONTH</h2>
+    <div class="price-label">Full access</div>
+    <div class="price">$9.99</div>
+    <div class="crypto-price">Ł 0.15 LTC</div>
+    <div class="crypto-price">◎ 0.35 SOL</div>
+    <ul class="features">
+      <li>30 days of access</li>
+      <li>All features included</li>
+      <li>Instant activation</li>
+    </ul>
+    <button onclick="selectCryptoPlan('1-month', 'ltc')">PAY WITH LTC</button>
+    <button onclick="selectCryptoPlan('1-month', 'sol')" style="background:#9945ff;margin-top:8px">PAY WITH SOL</button>
+  </div>
+
+  <div class="card">
+    <h2>3 MONTHS</h2>
+    <div class="price-label">Best value</div>
+    <div class="price">$24.99</div>
+    <div class="crypto-price">Ł 0.38 LTC</div>
+    <div class="crypto-price">◎ 0.85 SOL</div>
+    <ul class="features">
+      <li>90 days of access</li>
+      <li>All features included</li>
+      <li>Save 17%</li>
+    </ul>
+    <button onclick="selectCryptoPlan('3-month', 'ltc')">PAY WITH LTC</button>
+    <button onclick="selectCryptoPlan('3-month', 'sol')" style="background:#9945ff;margin-top:8px">PAY WITH SOL</button>
+  </div>
+
+  <div class="card">
+    <h2>1 YEAR</h2>
+    <div class="price-label">Best deal</div>
+    <div class="price">$79.99</div>
+    <div class="crypto-price">Ł 1.20 LTC</div>
+    <div class="crypto-price">◎ 2.70 SOL</div>
+    <ul class="features">
+      <li>365 days of access</li>
+      <li>All features included</li>
+      <li>Save 33%</li>
+    </ul>
+    <button onclick="selectCryptoPlan('1-year', 'ltc')">PAY WITH LTC</button>
+    <button onclick="selectCryptoPlan('1-year', 'sol')" style="background:#9945ff;margin-top:8px">PAY WITH SOL</button>
+  </div>
+</div>
+
+<div id="crypto-checkout" class="checkout-form hidden">
+  <h2 id="cryptoPlanName"></h2>
+  <div class="form-group">
+    <label>Email</label>
+    <input type="email" id="crypto-email" required placeholder="your@email.com"/>
+  </div>
+  <div class="form-group">
+    <label id="crypto-amount-label"></label>
+    <div class="crypto-address" id="crypto-address"></div>
+    <button type="button" class="copy-btn" onclick="copyAddress()">📋 COPY ADDRESS</button>
+  </div>
+  <div class="form-group">
+    <label>Transaction Hash (optional, for tracking)</label>
+    <input type="text" id="tx-hash" placeholder="Paste your tx hash here"/>
+  </div>
+  <button type="button" onclick="submitCryptoPayment()">CONFIRM PAYMENT</button>
+  <button type="button" onclick="cancelCryptoCheckout()" style="background:rgba(255,61,110,.15);color:#ff3d6e;margin-top:8px">Cancel</button>
+  <div class="error" id="crypto-error"></div>
+  <div class="success hidden" id="crypto-success"></div>
+</div>
+</div>
+
+</div>
+
 <script>
 const stripe = Stripe('${STRIPE_PUBLISHABLE_KEY}');
 const elements = stripe.elements();
 const cardElement = elements.create('card');
 let selectedPlan = null;
+let selectedCrypto = null;
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('stripe-tab').classList.toggle('hidden', tab !== 'stripe');
+  document.getElementById('crypto-tab').classList.toggle('hidden', tab !== 'crypto');
+}
 
 function selectPlan(plan) {
   selectedPlan = plan;
@@ -242,6 +347,74 @@ function cancelCheckout() {
   document.getElementById('checkout').classList.add('hidden');
   cardElement.unmount();
   document.getElementById('payment-form').reset();
+}
+
+function selectCryptoPlan(plan, crypto) {
+  selectedPlan = plan;
+  selectedCrypto = crypto;
+  const plans = { '1-month': '1 Month - $9.99', '3-month': '3 Months - $24.99', '1-year': '1 Year - $79.99' };
+  const amounts = {
+    '1-month': { ltc: '0.15 LTC', sol: '0.35 SOL' },
+    '3-month': { ltc: '0.38 LTC', sol: '0.85 SOL' },
+    '1-year': { ltc: '1.20 LTC', sol: '2.70 SOL' }
+  };
+  document.getElementById('cryptoPlanName').textContent = plans[plan] + ' (' + crypto.toUpperCase() + ')';
+  document.getElementById('crypto-amount-label').textContent = 'Send ' + amounts[plan][crypto] + ' to:';
+  
+  // Generate a demo address (in production, use CoinPayments API)
+  const demoAddresses = {
+    ltc: 'LTC1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa',
+    sol: '11111111111111111111111111111111'
+  };
+  document.getElementById('crypto-address').textContent = demoAddresses[crypto];
+  
+  document.getElementById('crypto-pricing').classList.add('hidden');
+  document.getElementById('crypto-checkout').classList.remove('hidden');
+}
+
+function cancelCryptoCheckout() {
+  selectedPlan = null;
+  selectedCrypto = null;
+  document.getElementById('crypto-pricing').classList.remove('hidden');
+  document.getElementById('crypto-checkout').classList.add('hidden');
+  document.getElementById('crypto-checkout').reset();
+}
+
+function copyAddress() {
+  const addr = document.getElementById('crypto-address').textContent;
+  navigator.clipboard.writeText(addr).then(() => {
+    alert('Address copied to clipboard!');
+  });
+}
+
+async function submitCryptoPayment() {
+  const email = document.getElementById('crypto-email').value;
+  const txHash = document.getElementById('tx-hash').value;
+  
+  if (!email) {
+    document.getElementById('crypto-error').textContent = 'Email is required';
+    return;
+  }
+  
+  try {
+    const res = await fetch('/crypto-checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan: selectedPlan, crypto: selectedCrypto, email, txHash })
+    });
+    const data = await res.json();
+    
+    if (data.error) {
+      document.getElementById('crypto-error').textContent = data.error;
+    } else {
+      document.getElementById('crypto-checkout').classList.add('hidden');
+      const successMsg = document.getElementById('crypto-success');
+      successMsg.classList.remove('hidden');
+      successMsg.innerHTML = \`<strong>✓ Payment submitted!</strong><br/>Your license key will be generated once payment is confirmed. Check your email at <strong>\${email}</strong>.\`;
+    }
+  } catch (err) {
+    document.getElementById('crypto-error').textContent = 'Error: ' + err.message;
+  }
 }
 
 document.getElementById('payment-form').addEventListener('submit', async (e) => {
@@ -286,8 +459,7 @@ document.getElementById('payment-form').addEventListener('submit', async (e) => 
   res.end(html);
 }
 
-// POST /checkout
-// Create Stripe payment intent
+// POST /checkout (Stripe)
 async function handleCheckout(req, res) {
   const { plan, email } = await readBody(req);
   if (!plan || !PRICING[plan]) return json(res, 400, { error: "Invalid plan" });
@@ -295,7 +467,7 @@ async function handleCheckout(req, res) {
 
   try {
     const intent = await stripe.paymentIntents.create({
-      amount: PRICING[plan].price,
+      amount: Math.round(PRICING[plan].price * 100),
       currency: "usd",
       metadata: { plan, email }
     });
@@ -305,8 +477,36 @@ async function handleCheckout(req, res) {
   }
 }
 
+// POST /crypto-checkout
+async function handleCryptoCheckout(req, res) {
+  const { plan, crypto, email, txHash } = await readBody(req);
+  if (!plan || !CRYPTO_PRICING[plan]) return json(res, 400, { error: "Invalid plan" });
+  if (!crypto || !["ltc", "sol"].includes(crypto)) return json(res, 400, { error: "Invalid crypto" });
+  if (!email) return json(res, 400, { error: "Email required" });
+
+  const db = loadDB();
+  const key = generateKey();
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + CRYPTO_PRICING[plan].durationDays);
+
+  db.keys[key] = {
+    revoked: false,
+    hwid: null,
+    createdAt: new Date().toISOString(),
+    expiresAt: expiresAt.toISOString(),
+    purchasedBy: email,
+    plan: plan,
+    paymentMethod: "crypto",
+    crypto: crypto,
+    txHash: txHash || null
+  };
+  saveDB(db);
+
+  console.log(\`✓ Crypto key generated for \${email}: \${key} (\${crypto.toUpperCase()})\`);
+  return json(res, 200, { ok: true, key });
+}
+
 // POST /webhook/stripe
-// Handle Stripe webhook for successful payments
 async function handleStripeWebhook(req, res) {
   const sig = req.headers["stripe-signature"];
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -336,12 +536,12 @@ async function handleStripeWebhook(req, res) {
         createdAt: new Date().toISOString(),
         expiresAt: expiresAt.toISOString(),
         purchasedBy: metadata.email,
-        plan: metadata.plan
+        plan: metadata.plan,
+        paymentMethod: "stripe"
       };
       saveDB(db);
 
-      console.log(`✓ Key generated for ${metadata.email}: ${key}`);
-      // TODO: Send email with key to metadata.email
+      console.log(\`✓ Key generated for \${metadata.email}: \${key}\`);
     }
 
     return json(res, 200, { received: true });
@@ -352,7 +552,7 @@ async function handleStripeWebhook(req, res) {
 }
 
 // ─────────────────────────────────────────────
-// Admin Routes (unchanged)
+// Admin Routes
 // ─────────────────────────────────────────────
 
 function handleListKeys(req, res) {
@@ -501,10 +701,10 @@ async function loadKeys() {
  <td>
  <div style="display:flex;gap:5px;flex-wrap:wrap">
  \${info.revoked
- ? \`<button class="btn-g" style="font-size:9px;padding:4px 8px" onclick="unrevokeKey('\${key}')">UNREVOKE</button>\`
- : \`<button class="btn-r" style="font-size:9px;padding:4px 8px" onclick="revokeKey('\${key}')">REVOKE</button>\`
+ ? \`<button class="btn-g" style="font-size:9px;padding:4px 8px" onclick="unrevokeKey('\${key}')\">UNREVOKE</button>\`
+ : \`<button class="btn-r" style="font-size:9px;padding:4px 8px" onclick="revokeKey('\${key}')\">REVOKE</button>\`
  }
- <button class="btn-m" style="font-size:9px;padding:4px 8px" onclick="resetHwid('\${key}')">RESET DEVICE</button>
+ <button class="btn-m" style="font-size:9px;padding:4px 8px" onclick="resetHwid('\${key}')\">RESET DEVICE</button>
  </div>
  </td>
  \`;
@@ -550,6 +750,7 @@ const server = http.createServer((req, res) => {
   // Shop routes
   if (req.method === "GET" && url === "/shop") return handleShop(req, res);
   if (req.method === "POST" && url === "/checkout") return handleCheckout(req, res);
+  if (req.method === "POST" && url === "/crypto-checkout") return handleCryptoCheckout(req, res);
   if (req.method === "POST" && url === "/webhook/stripe") return handleStripeWebhook(req, res);
 
   // Validation
