@@ -16,18 +16,14 @@ const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLISHABLE_KEY || "pk_test_du
 const COINPAYMENTS_MERCHANT_ID = process.env.COINPAYMENTS_MERCHANT_ID || "";
 const COINPAYMENTS_IPN_SECRET = process.env.COINPAYMENTS_IPN_SECRET || "";
 
-// Key pricing (in USD)
+// Key pricing (in USD) - LIFETIME ONLY
 const PRICING = {
-  "1-month": { price: 9.99, durationDays: 30, name: "1 Month" },
-  "3-month": { price: 24.99, durationDays: 90, name: "3 Months" },
-  "1-year": { price: 79.99, durationDays: 365, name: "1 Year" }
+  "lifetime": { price: 15.00, durationDays: 36500, name: "Lifetime" }
 };
 
-// Crypto pricing (approximate, in crypto units)
+// Crypto pricing (in crypto units) - LIFETIME ONLY
 const CRYPTO_PRICING = {
-  "1-month": { ltc: 0.15, sol: 0.35, durationDays: 30 },
-  "3-month": { ltc: 0.38, sol: 0.85, durationDays: 90 },
-  "1-year": { ltc: 1.20, sol: 2.70, durationDays: 365 }
+  "lifetime": { ltc: 0.25, sol: 0.55, durationDays: 36500 }
 };
 
 // ─────────────────────────────────────────────
@@ -99,7 +95,7 @@ async function handleValidate(req, res) {
   if (!entry) return json(res, 200, { valid: false, reason: "Unknown key" });
   if (entry.revoked) return json(res, 200, { valid: false, reason: "Key revoked" });
 
-  // Check expiration
+  // Check expiration (lifetime keys never expire)
   if (entry.expiresAt && new Date(entry.expiresAt) < new Date()) {
     return json(res, 200, { valid: false, reason: "Key expired" });
   }
@@ -189,39 +185,16 @@ input:focus{border-color:rgba(232,255,0,.4)}
 <div id="stripe-tab">
 <div id="pricing" class="pricing-grid">
   <div class="card">
-    <h2>1 MONTH</h2>
-    <div class="price-label">Full access</div>
-    <div class="price">$9.99</div>
+    <h2>LIFETIME ACCESS</h2>
+    <div class="price-label">One-time purchase</div>
+    <div class="price">$15.00</div>
     <ul class="features">
-      <li>30 days of access</li>
+      <li>Lifetime access</li>
       <li>All features included</li>
+      <li>One device binding</li>
       <li>Instant activation</li>
     </ul>
-    <button onclick="selectPlan('1-month')">BUY NOW</button>
-  </div>
-
-  <div class="card">
-    <h2>3 MONTHS</h2>
-    <div class="price-label">Best value</div>
-    <div class="price">$24.99</div>
-    <ul class="features">
-      <li>90 days of access</li>
-      <li>All features included</li>
-      <li>Save 17%</li>
-    </ul>
-    <button onclick="selectPlan('3-month')">BUY NOW</button>
-  </div>
-
-  <div class="card">
-    <h2>1 YEAR</h2>
-    <div class="price-label">Best deal</div>
-    <div class="price">$79.99</div>
-    <ul class="features">
-      <li>365 days of access</li>
-      <li>All features included</li>
-      <li>Save 33%</li>
-    </ul>
-    <button onclick="selectPlan('1-year')">BUY NOW</button>
+    <button onclick="selectPlan('lifetime')">BUY NOW</button>
   </div>
 </div>
 
@@ -249,48 +222,19 @@ input:focus{border-color:rgba(232,255,0,.4)}
 <div id="crypto-tab" class="hidden">
 <div id="crypto-pricing" class="pricing-grid">
   <div class="card">
-    <h2>1 MONTH</h2>
-    <div class="price-label">Full access</div>
-    <div class="price">$9.99</div>
-    <div class="crypto-price">Ł 0.15 LTC</div>
-    <div class="crypto-price">◎ 0.35 SOL</div>
+    <h2>LIFETIME ACCESS</h2>
+    <div class="price-label">One-time purchase</div>
+    <div class="price">$15.00</div>
+    <div class="crypto-price">Ł 0.25 LTC</div>
+    <div class="crypto-price">◎ 0.55 SOL</div>
     <ul class="features">
-      <li>30 days of access</li>
+      <li>Lifetime access</li>
       <li>All features included</li>
+      <li>One device binding</li>
       <li>Instant activation</li>
     </ul>
-    <button onclick="selectCryptoPlan('1-month', 'ltc')">PAY WITH LTC</button>
-    <button onclick="selectCryptoPlan('1-month', 'sol')" style="background:#9945ff;margin-top:8px">PAY WITH SOL</button>
-  </div>
-
-  <div class="card">
-    <h2>3 MONTHS</h2>
-    <div class="price-label">Best value</div>
-    <div class="price">$24.99</div>
-    <div class="crypto-price">Ł 0.38 LTC</div>
-    <div class="crypto-price">◎ 0.85 SOL</div>
-    <ul class="features">
-      <li>90 days of access</li>
-      <li>All features included</li>
-      <li>Save 17%</li>
-    </ul>
-    <button onclick="selectCryptoPlan('3-month', 'ltc')">PAY WITH LTC</button>
-    <button onclick="selectCryptoPlan('3-month', 'sol')" style="background:#9945ff;margin-top:8px">PAY WITH SOL</button>
-  </div>
-
-  <div class="card">
-    <h2>1 YEAR</h2>
-    <div class="price-label">Best deal</div>
-    <div class="price">$79.99</div>
-    <div class="crypto-price">Ł 1.20 LTC</div>
-    <div class="crypto-price">◎ 2.70 SOL</div>
-    <ul class="features">
-      <li>365 days of access</li>
-      <li>All features included</li>
-      <li>Save 33%</li>
-    </ul>
-    <button onclick="selectCryptoPlan('1-year', 'ltc')">PAY WITH LTC</button>
-    <button onclick="selectCryptoPlan('1-year', 'sol')" style="background:#9945ff;margin-top:8px">PAY WITH SOL</button>
+    <button onclick="selectCryptoPlan('lifetime', 'ltc')">PAY WITH LTC</button>
+    <button onclick="selectCryptoPlan('lifetime', 'sol')" style="background:#9945ff;margin-top:8px">PAY WITH SOL</button>
   </div>
 </div>
 
@@ -334,7 +278,7 @@ function switchTab(tab) {
 
 function selectPlan(plan) {
   selectedPlan = plan;
-  const plans = { '1-month': '1 Month - $9.99', '3-month': '3 Months - $24.99', '1-year': '1 Year - $79.99' };
+  const plans = { 'lifetime': 'Lifetime Access - $15.00' };
   document.getElementById('planName').textContent = plans[plan];
   document.getElementById('pricing').classList.add('hidden');
   document.getElementById('checkout').classList.remove('hidden');
@@ -352,11 +296,9 @@ function cancelCheckout() {
 function selectCryptoPlan(plan, crypto) {
   selectedPlan = plan;
   selectedCrypto = crypto;
-  const plans = { '1-month': '1 Month - $9.99', '3-month': '3 Months - $24.99', '1-year': '1 Year - $79.99' };
+  const plans = { 'lifetime': 'Lifetime Access - $15.00' };
   const amounts = {
-    '1-month': { ltc: '0.15 LTC', sol: '0.35 SOL' },
-    '3-month': { ltc: '0.38 LTC', sol: '0.85 SOL' },
-    '1-year': { ltc: '1.20 LTC', sol: '2.70 SOL' }
+    'lifetime': { ltc: '0.25 LTC', sol: '0.55 SOL' }
   };
   document.getElementById('cryptoPlanName').textContent = plans[plan] + ' (' + crypto.toUpperCase() + ')';
   document.getElementById('crypto-amount-label').textContent = 'Send ' + amounts[plan][crypto] + ' to:';
